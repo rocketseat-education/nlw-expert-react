@@ -1,48 +1,77 @@
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useEffect, useState } from "react";
 import logo from "./assets/logo-nlw-expert.svg";
 import { NewNoteCard } from "./components/new-note-card";
 import { NoteCard } from "./components/note-card";
+import { tursoClient } from "./lib";
 
 interface Note {
   id: string;
-  date: Date;
+  date_created: Date;
   content: string;
 }
 
 export function App() {
   const [search, setSearch] = useState("");
-  const [notes, setNotes] = useState<Note[]>(() => {
-    const notesOnStorage = localStorage.getItem("notes");
+  const [notes, setNotes] = useState<Note[]>([]);
 
-    if (notesOnStorage) {
-      return JSON.parse(notesOnStorage);
-    }
+  useEffect(() => {
+    const fetchData = async (): Promise<void> => {
+      try {
+        const result = await tursoClient.execute("SELECT * FROM frameworks");
+        const notes: Note[] = result.rows.map((row): Note => {
+          const { id, date_created, note } = row;
+          return {
+            id: id?.toString() || "",
+            date_created: new Date(Number(date_created)),
+            content: note?.toString() || "",
+          };
+        });
 
-    return [];
-  });
+        setNotes(notes);
+      } catch (error: any) {
+        console.log("Error fetching data:", error.message);
+      }
+    };
 
-  function onNoteCreated(content: string) {
+    fetchData();
+  }, []);
+
+
+  async function onNoteCreated(content: string) {
     const newNote = {
       id: crypto.randomUUID(),
-      date: new Date(),
+      date_created: new Date(),
       content,
     };
 
     const notesArray = [newNote, ...notes];
+    try {
+      await tursoClient.execute({
+        sql:"INSERT INTO frameworks (date_created, note) VALUES (?, ?)",
+        args: [newNote.date_created, newNote.content]
+      });
+    } catch (error: any) {
+      console.log('Somenthing goes wrong!',error.message);
+    }
 
     setNotes(notesArray);
 
-    localStorage.setItem("notes", JSON.stringify(notesArray));
   }
 
-  function onNoteDeleted(id: string) {
+  async function onNoteDeleted(id: string) {
+    try {
+      await tursoClient.execute({
+        sql:"DELETE FROM frameworks WHERE id = ?",
+        args: [id]
+      });
+    } catch (error) {
+      console.log(error);
+    }
     const notesArray = notes.filter((note) => {
       return note.id !== id;
     });
 
     setNotes(notesArray);
-
-    localStorage.setItem("notes", JSON.stringify(notesArray));
   }
 
   function handleSearch(event: ChangeEvent<HTMLInputElement>) {
@@ -57,6 +86,7 @@ export function App() {
           note.content.toLocaleLowerCase().includes(search.toLocaleLowerCase())
         )
       : notes;
+
 
   return (
     <div className="mx-auto max-w-6xl my-12 space-y-6 px-5">
@@ -76,11 +106,11 @@ export function App() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-[250px]">
         <NewNoteCard onNoteCreated={onNoteCreated} />
 
-        {filteredNotes.map((note) => {
+        {notes.length !== 0 ? filteredNotes.map((note) => {
           return (
             <NoteCard onNoteDeleted={onNoteDeleted} key={note.id} note={note} />
           );
-        })}
+        }) : <span>Nenhuma nota encontrada</span>}
       </div>
     </div>
   );
